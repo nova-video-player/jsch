@@ -35,7 +35,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.IOException;
 import java.lang.reflect.Field;
-import android.util.Log;
 
 
 public abstract class Channel implements Runnable{
@@ -332,7 +331,8 @@ public abstract class Channel implements Runnable{
 		  Field v = PipedOutputStream.class.getDeclaredField("target");
 		  return v;
 	  } catch(Exception e) {
-		  Log.d("JSCH", "Couldn't get target", e);
+          System.out.println("JSCH; Channel: Couldn't get target");
+          e.printStackTrace();
 	  }
 	return null;
   }
@@ -395,7 +395,7 @@ public abstract class Channel implements Runnable{
     private synchronized int _receive(byte[] data, int offset, int len) throws IOException {
 	while(in == out) {
 	    try {
-		Log.d("JSCH", "I have " + len + " bytes to give, but buffer full...");
+        System.out.println("JSCH; Channel: I have " + len + " bytes to give, but buffer full...");
 		notifyAll();
 		wait(100);
 	    } catch (InterruptedException e) {
@@ -434,7 +434,7 @@ public abstract class Channel implements Runnable{
     protected synchronized void receive(int oneByte) throws IOException {
         try {
             while (buffer != null && out == in) {
-		Log.d("JSCH", "I have a byte to give, but buffer full...");
+                System.out.println("JSCH; Channel:I have a byte to give, but buffer full...");
                 notifyAll();
                 wait(100);
             }
