@@ -222,9 +222,9 @@ public class ChannelSftp extends ChannelSession{
   public void start() throws JSchException{
     try{
 
-      PipedOutputStream pos=new PipedOutputStream();
+      PipedOutputStream pos=new MyPipedOutputStream();
       io.setOutputStream(pos);
-      PipedInputStream pis=new MyPipedInputStream(pos, rmpsize);
+      PipedInputStream pis=new MyPipedInputStream(pos, rmpsize*8);
       io.setInputStream(pis);
 
       io_in=io.in;

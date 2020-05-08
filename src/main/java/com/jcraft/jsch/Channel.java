@@ -34,6 +34,8 @@ import java.io.PipedOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.IOException;
+import java.lang.reflect.Field;
+import android.util.Log;
 
 
 public abstract class Channel implements Runnable{
@@ -325,6 +327,49 @@ public abstract class Channel implements Runnable{
     return out;
   }
 
+  static Field targetFromPiped() {
+	  try {
+		  Field v = PipedOutputStream.class.getDeclaredField("target");
+		  return v;
+	  } catch(Exception e) {
+		  Log.d("JSCH", "Couldn't get target", e);
+	  }
+	return null;
+  }
+
+  final static Field privateStringField = targetFromPiped();
+  static {
+	  privateStringField.setAccessible(true);
+  };
+  class MyPipedOutputStream extends PipedOutputStream {
+	  MyPipedOutputStream() {
+		  super();
+	  }
+    MyPipedOutputStream(PipedInputStream in) throws IOException{
+		super(in);
+	}
+
+	  @Override
+	  public void write(byte[] buffer, int offset, int count) throws IOException {
+		  PipedInputStream stream = null;
+		  try {
+			  stream = (PipedInputStream) privateStringField.get(this);
+		  } catch(java.lang.IllegalAccessException e) {
+			  throw new IOException("target field not reachable...");
+		  }
+
+		  if(stream == null)
+			  throw new IOException("Pipe not connected");
+		  if(stream instanceof MyPipedInputStream) {
+			  MyPipedInputStream s = (MyPipedInputStream)stream;
+			  byte[] subbuffer = java.util.Arrays.copyOfRange(buffer, offset, count+offset);
+			  s.receive(subbuffer, count);
+		  } else {
+			  super.write(buffer, offset, count);
+		  }
+	  }
+  };
+
   class MyPipedInputStream extends PipedInputStream{
     private int BUFFER_SIZE = 1024;
     private int max_buffer_size = BUFFER_SIZE;
@@ -345,6 +390,71 @@ public abstract class Channel implements Runnable{
       buffer=new byte[size];
       BUFFER_SIZE=size;
     }
+
+
+    private synchronized int _receive(byte[] data, int offset, int len) throws IOException {
+	while(in == out) {
+	    try {
+		Log.d("JSCH", "I have " + len + " bytes to give, but buffer full...");
+		notifyAll();
+		wait(100);
+	    } catch (InterruptedException e) {
+		throw new IOException("Pipe closed");
+	    }
+	}
+
+	if(in == -1) in = 0;
+
+	int l = len;
+
+	if( l > (buffer.length-in))
+	    l = buffer.length - in;
+
+	if(out > in && l > (out-in) )
+	    l = out-in;
+
+	java.lang.System.arraycopy(data, offset, buffer, in, l);
+	in += l;
+
+	if(in == buffer.length) in = 0;
+	return l;
+    }
+
+    protected synchronized void receive(byte[] data, int len) throws IOException {
+	int offset = 0;
+	while(len>0) {
+	    int ret = _receive(data, offset, len);
+	    offset += ret;
+	    len -= ret;
+	}
+	notifyAll();
+    }
+
+    @Override
+    protected synchronized void receive(int oneByte) throws IOException {
+        try {
+            while (buffer != null && out == in) {
+		Log.d("JSCH", "I have a byte to give, but buffer full...");
+                notifyAll();
+                wait(100);
+            }
+        } catch (InterruptedException e) {
+	    throw new IOException("Pipe is closed");
+        }
+
+	if (buffer == null)
+	    throw new IOException("Pipe is closed");
+
+	if (in == -1) {
+	    in = 0;
+	}
+	buffer[in++] = (byte) oneByte;
+	if (in == buffer.length) {
+	    in = 0;
+	}
+    }
+
+
 
     /*
      * TODO: We should have our own Piped[I/O]Stream implementation.
@@ -638,7 +748,7 @@ public abstract class Channel implements Runnable{
       out=null;
     }
   }
-  class PassiveOutputStream extends PipedOutputStream{
+  class PassiveOutputStream extends MyPipedOutputStream{
     private MyPipedInputStream _sink=null;
     PassiveOutputStream(PipedInputStream in,
                         boolean resizable_buffer) throws IOException{
